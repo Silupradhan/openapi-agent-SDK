@@ -54,31 +54,72 @@ const getOrderStatusTool = tool({
     }
 })
 
-const customerSupportAgent = new Agent({
-    name: "Customer Support Agent",
-    instructions: `You are a friendly customer support agent.
-Help customers with order inquiries, shipping, and returns questions.
-When a customer mentions an order ID, always call get_Order_Status with the exact order ID before answering.
-Use the tool result as the source of truth. Do not invent order details.
-For an unknown order ID, clearly tell the customer that the order was not found and ask them to verify the ID.
-Set needsHumanSupport to true only when the customer asks for a human or the request cannot be resolved with the available information.
-Keep the message short, clear, and helpful.`,
+const getReturnPolicyTool = tool({
+    name : "get_Return_Policy",
+    description : "Get the return policy for a specific product based on the product ID provided.",
+    parameters : z.object({
+        productId : z.string()
+    }),
+    execute({productId}){
+        console.log(`Fetching return policy for product ID: ${productId}`);
+        // For demonstration, we will return a static return policy.
+        // In a real application, you would fetch this information from a database or API.
+        return `Return policy for product ${productId}: You can return the product within 30 days of purchase with a valid receipt.`;
+    }
+})
+
+const orderAgent = new Agent({
+    name: "Order Agent",
+    handoffDescription : "order tracking and status inquiries",
+    instructions : "Help with order status. call get_Order_Status when the coustomer give an order ID. Do not invent status.",
     model: "openai/gpt-4o-mini",
     tools : [getOrderStatusTool],
-    outputType: SupportResponse,
-
 })
+
+const returnAgent = new Agent({
+    name: "Return Agent",
+    handoffDescription : "return, refaund and returns policy inquiries",
+    instructions : "Help with return policy. call get_Return_Policy when the coustomer give a product ID. Do not invent return policy details.",
+    model: "openai/gpt-4o-mini",
+    tools : [getReturnPolicyTool],
+})
+
+const triageAgent = Agent.create({
+    name: "Triage Agent",
+    instructions: "You receive customer inquiries and hand off to the right specialized agent. Order or shipping inquiries go to the Order Agent. Return and refund inquiries go to the Return Agent. Do not answer those topics yourself-hand off to the right agent. If the inquiry is not related to order or return, respond with 'I'm sorry, I can only assist with order and return inquiries. Please contact our support team for further assistance.'",
+    model: "openai/gpt-4o-mini",
+    handoffs : [orderAgent, returnAgent],
+})
+
+// const customerSupportAgent = new Agent({
+//     name: "Customer Support Agent",
+//     instructions: `You are a friendly customer support agent.
+// Help customers with order inquiries, shipping, and returns questions.
+// When a customer mentions an order ID, always call get_Order_Status with the exact order ID before answering.
+// Use the tool result as the source of truth. Do not invent order details.
+// For an unknown order ID, clearly tell the customer that the order was not found and ask them to verify the ID.
+// Set needsHumanSupport to true only when the customer asks for a human or the request cannot be resolved with the available information.
+// Keep the message short, clear, and helpful.`,
+//     model: "openai/gpt-4o-mini",
+//     tools : [getOrderStatusTool],
+//     outputType: SupportResponse,
+
+// })
+
+triageAgent.on("agent_handoff",(_ctx, nextAgent)=>{
+   console.log(`Handoff to agent: ${nextAgent.name}`); 
+});
 
 const question = [
     'where is my order ORDER123?',
-    'can you check order ORDER999?',
+    'what is your return policy?',
 ]
 
 async function main() {
     // const result = await run(customerSupportAgent, "Hello! I have a question about my recent order. Can you help me?")
     // console.log("Agent Response:", result.finalOutput);
     for (const q of question) {
-        const result = await run(customerSupportAgent, q);
+        const result = await run(triageAgent, q);
         console.log(`Question: ${q}`);
         console.log("Agent Response:", result.finalOutput);
     }
