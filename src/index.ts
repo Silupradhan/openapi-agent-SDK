@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import {Agent, run, setDefaultModelProvider, setTracingDisabled, tool} from "@openai/agents";
+import {Agent, run, setDefaultModelProvider, setTracingDisabled, tool, MemorySession} from "@openai/agents";
 import {OpenAIProvider, setOpenAIAPI} from "@openai/agents-openai";
 import * as dotenv from "dotenv";
 import { z } from "zod";
@@ -54,18 +54,25 @@ const getOrderStatusTool = tool({
     }
 })
 
-const getReturnPolicyTool = tool({
-    name : "get_Return_Policy",
-    description : "Get the return policy for a specific product based on the product ID provided.",
-    parameters : z.object({
-        productId : z.string()
-    }),
-    execute({productId}){
-        console.log(`Fetching return policy for product ID: ${productId}`);
-        // For demonstration, we will return a static return policy.
-        // In a real application, you would fetch this information from a database or API.
-        return `Return policy for product ${productId}: You can return the product within 30 days of purchase with a valid receipt.`;
-    }
+// const getReturnPolicyTool = tool({
+//     name : "get_Return_Policy",
+//     description : "Get the return policy for a specific product based on the product ID provided.",
+//     parameters : z.object({
+//         productId : z.string()
+//     }),
+//     execute({productId}){
+//         console.log(`Fetching return policy for product ID: ${productId}`);
+//         // For demonstration, we will return a static return policy.
+//         // In a real application, you would fetch this information from a database or API.
+//         return `Return policy for product ${productId}: You can return the product within 30 days of purchase with a valid receipt.`;
+//     }
+// })
+
+const orderAgents = new Agent({
+    name: "Order Agent",
+    instructions : "Help with order status. Call get_Order_Status when the customer gives an order ID. Use earlier message in the conversation when they refer to 'my order' or 'that order'.Do not invent status.",
+    model : "openai/gpt-4o-mini",
+    tools : [getOrderStatusTool],
 })
 
 const orderAgent = new Agent({
@@ -76,20 +83,20 @@ const orderAgent = new Agent({
     tools : [getOrderStatusTool],
 })
 
-const returnAgent = new Agent({
-    name: "Return Agent",
-    handoffDescription : "return, refaund and returns policy inquiries",
-    instructions : "Help with return policy. call get_Return_Policy when the coustomer give a product ID. Do not invent return policy details.",
-    model: "openai/gpt-4o-mini",
-    tools : [getReturnPolicyTool],
-})
+// const returnAgent = new Agent({
+//     name: "Return Agent",
+//     handoffDescription : "return, refaund and returns policy inquiries",
+//     instructions : "Help with return policy. call get_Return_Policy when the coustomer give a product ID. Do not invent return policy details.",
+//     model: "openai/gpt-4o-mini",
+//     tools : [getReturnPolicyTool],
+// })
 
-const triageAgent = Agent.create({
-    name: "Triage Agent",
-    instructions: "You receive customer inquiries and hand off to the right specialized agent. Order or shipping inquiries go to the Order Agent. Return and refund inquiries go to the Return Agent. Do not answer those topics yourself-hand off to the right agent. If the inquiry is not related to order or return, respond with 'I'm sorry, I can only assist with order and return inquiries. Please contact our support team for further assistance.'",
-    model: "openai/gpt-4o-mini",
-    handoffs : [orderAgent, returnAgent],
-})
+// const triageAgent = Agent.create({
+//     name: "Triage Agent",
+//     instructions: "You receive customer inquiries and hand off to the right specialized agent. Order or shipping inquiries go to the Order Agent. Return and refund inquiries go to the Return Agent. Do not answer those topics yourself-hand off to the right agent. If the inquiry is not related to order or return, respond with 'I'm sorry, I can only assist with order and return inquiries. Please contact our support team for further assistance.'",
+//     model: "openai/gpt-4o-mini",
+//     handoffs : [orderAgent, returnAgent],
+// })
 
 // const customerSupportAgent = new Agent({
 //     name: "Customer Support Agent",
@@ -106,27 +113,48 @@ const triageAgent = Agent.create({
 
 // })
 
-triageAgent.on("agent_handoff",(_ctx, nextAgent)=>{
-   console.log(`Handoff to agent: ${nextAgent.name}`); 
-});
+// triageAgent.on("agent_handoff",(_ctx, nextAgent)=>{
+//    console.log(`Handoff to agent: ${nextAgent.name}`); 
+// });
 
-const question = [
-    'where is my order ORDER123?',
-    'what is your return policy?',
+// const question = [
+//     'where is my order ORDER123?',
+//     'what is your return policy?',
+// ]
+
+// async function main() {
+//     // const result = await run(customerSupportAgent, "Hello! I have a question about my recent order. Can you help me?")
+//     // console.log("Agent Response:", result.finalOutput);
+//     for (const q of question) {
+//         const result = await run(triageAgent, q);
+//         console.log(`Question: ${q}`);
+//         console.log("Agent Response:", result.finalOutput);
+//     }
+// }
+
+// main().catch((error: unknown) => {
+//     const message = error instanceof Error ? error.message : JSON.stringify(error);
+//     console.error("Failed to run the customer support agent:", message);
+//     process.exitCode = 1;
+// });
+
+const turns = [
+    "where is my order ORDER123?",
+    "what order id did i just ask?"
 ]
 
 async function main() {
-    // const result = await run(customerSupportAgent, "Hello! I have a question about my recent order. Can you help me?")
-    // console.log("Agent Response:", result.finalOutput);
-    for (const q of question) {
-        const result = await run(triageAgent, q);
-        console.log(`Question: ${q}`);
+    const session = new MemorySession();
+
+    for (const turn of turns) {
+        const result = await run(orderAgents, turn, {session});
+        console.log(`Turn: ${turn}`);
         console.log("Agent Response:", result.finalOutput);
     }
 }
 
 main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : JSON.stringify(error);
-    console.error("Failed to run the customer support agent:", message);
+    console.error("Failed to run the order agent:", message);
     process.exitCode = 1;
 });
